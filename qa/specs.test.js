@@ -61,3 +61,51 @@ scenario('busca de estoque filtra itens',async p=>{
  const table=await p.text('#estoqueTable');
  assert.match(table,/Zerado QA/);assert.doesNotMatch(table,/Produto QA/);
 });
+
+async function committed(p,count){
+ await p.driver.wait(()=>p.driver.executeScript(
+  'return window.__qaWrites.length===arguments[0]&&document.getElementById("modalOverlay").style.display==="none"',count),
+ 10000,'movimentação concluída com uma única gravação');
+}
+async function kpis(p,expected){
+ await p.driver.wait(async()=>JSON.stringify(await p.driver.executeScript(
+  'return Array.from(document.querySelectorAll("#kpiGrid .kpi-val"),e=>e.textContent)'))===JSON.stringify(expected),
+ 10000,'KPIs devem refletir o saldo: '+expected.join(','));
+}
+scenario('retirada exata e reposicao atravessam estados zerado minimo e ok',async p=>{
+ await login(p);
+ const original=await p.driver.executeScript('return window.__qaData()');
+ await movement(p,10,'saida');await committed(p,1);
+ const depleted=await p.driver.executeScript('return window.__qaData()');
+ assert.equal(depleted.items.find(i=>i.nome==='Produto QA').qtd,0);
+ assert.deepEqual(depleted.hist.map(h=>[h.tipo,h.nome,h.qtd]),[['saida','Produto QA',10]]);
+ await kpis(p,['3','0','1','2']);
+ await movement(p,2);await committed(p,2);
+ assert.equal(await p.driver.executeScript('return window.__qaData().items.find(i=>i.nome==="Produto QA").qtd'),2);
+ await kpis(p,['3','0','2','1']);
+ await movement(p,0.01);await committed(p,3);
+ const restored=await p.driver.executeScript('return window.__qaData()');
+ assert.equal(restored.items.find(i=>i.nome==='Produto QA').qtd,2.01);
+ assert.deepEqual(restored.hist.map(h=>[h.tipo,h.nome,h.qtd]),[
+  ['entrada','Produto QA',0.01],['entrada','Produto QA',2],['saida','Produto QA',10]
+ ]);
+ assert.deepEqual(restored.items.filter(i=>i.nome!=='Produto QA'),
+  original.items.filter(i=>i.nome!=='Produto QA'),'movimentações não devem alterar outros produtos');
+ await kpis(p,['3','1','1','1']);
+});
+scenario('movimentacoes fracionarias conservam saldo e ordem do historico',async p=>{
+ await login(p);
+ const original=await p.driver.executeScript('return window.__qaData()');
+ let writes=0;
+ for(const [quantity,type] of [[0.1,'entrada'],[0.2,'entrada'],[0.3,'saida']]){
+  await movement(p,quantity,type);await committed(p,++writes);
+ }
+ const saved=await p.driver.executeScript('return window.__qaData()');
+ assert.deepEqual(saved.items,original.items,'0,1 + 0,2 - 0,3 deve preservar o saldo exato');
+ assert.deepEqual(saved.hist.map(h=>[h.tipo,h.nome,h.qtd,h.motivo]),[
+  ['saida','Produto QA',0.3,'Movimento QA'],
+  ['entrada','Produto QA',0.2,'Movimento QA'],
+  ['entrada','Produto QA',0.1,'Movimento QA']
+ ]);
+ await kpis(p,['3','1','1','1']);
+});
