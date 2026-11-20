@@ -1,4 +1,5 @@
 import { scenario, assert, By } from './support.js';
+import { Key } from 'selenium-webdriver';
 async function login(p){
  await p.open();await p.fill('#loginEmail','qa@example.test');await p.fill('#loginPassword','SenhaQA123!');
  await p.click('#btnLogin');await p.waitText('#sideUserName','qa@example.test');
@@ -73,6 +74,12 @@ async function productNames(p,table,column=1){
 async function filterState(p){
  return p.driver.executeScript('return {saved:window.__qaData(),items:window.items,hist:window.hist,writes:window.__qaWrites.length}');
 }
+async function clearSearch(p,selector){
+ // WebDriver.clear() pode não disparar input; apagar por teclas percorre o fluxo do usuário.
+ const field=await p.element(selector);
+ await field.sendKeys(Key.HOME,Key.chord(Key.SHIFT,Key.END),Key.BACK_SPACE);
+ assert.equal(await field.getAttribute('value'),'');
+}
 scenario('filtros de estoque combinam busca categoria e status sem gravar',async p=>{
  await login(p);await nav(p,'estoque');
  const before=await filterState(p);
@@ -86,7 +93,7 @@ scenario('filtros de estoque combinam busca categoria e status sem gravar',async
  await p.waitText('#estoqueTable','Nenhum produto encontrado.');
  await p.select('#eStatus','ok');
  assert.deepEqual(await productNames(p,'#estoqueTable'),['Produto QA']);
- await p.fill('#eSearch','');
+ await clearSearch(p,'#eSearch');
  await p.select('#eCat','Producao');
  assert.deepEqual(await rows(p,'#estoqueTable'),[]);
  await p.select('#eStatus','zerado');
@@ -114,7 +121,7 @@ scenario('historico combina busca e tipo e restaura movimentacoes sem gravar',as
  await p.select('#hTipo','entrada');
  assert.deepEqual(await productNames(p,'#histTable',2),['Zerado QA']);
  assert.match((await rows(p,'#histTable'))[0],/Entrada\s+\+2/);
- await p.fill('#hSearch','');
+ await clearSearch(p,'#hSearch');
  assert.deepEqual(await productNames(p,'#histTable',2),['Zerado QA','Produto QA']);
  await p.select('#hTipo','');
  assert.deepEqual(await rows(p,'#histTable'),all);
