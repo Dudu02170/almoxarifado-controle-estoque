@@ -297,9 +297,9 @@ tr:hover td{background:#FAFBFE}
         <div class="table-header">
           <span class="table-title">Todos os produtos</span>
           <div class="table-filters">
-            <input type="text" placeholder="Buscar..." id="eSearch" oninput="renderEstoque()">
-            <select id="eCat" onchange="renderEstoque()"><option value="">Todas categorias</option></select>
-            <select id="eStatus" onchange="renderEstoque()">
+            <input type="text" placeholder="Buscar..." id="eSearch">
+            <select id="eCat"><option value="">Todas categorias</option></select>
+            <select id="eStatus">
               <option value="">Todos status</option>
               <option value="ok">OK</option>
               <option value="repor">Repor</option>
@@ -317,8 +317,8 @@ tr:hover td{background:#FAFBFE}
         <div class="table-header">
           <span class="table-title">Historico de movimentacoes</span>
           <div class="table-filters">
-            <input type="text" placeholder="Buscar..." id="hSearch" oninput="renderHist()">
-            <select id="hTipo" onchange="renderHist()">
+            <input type="text" placeholder="Buscar..." id="hSearch">
+            <select id="hTipo">
               <option value="">Todos</option>
               <option value="entrada">Entradas</option>
               <option value="saida">Saidas</option>
@@ -747,6 +747,13 @@ function populateCatFilters(){
   const mItem=document.getElementById('mItem');
   if(mItem){const v=mItem.value;mItem.innerHTML='<option value="">Selecione o produto...</option>'+window.items.map(i=>`<option${i.nome===v?' selected':''}>${i.nome}</option>`).join('');}
 }
+
+// Os filtros chamam funções locais ao módulo, sem callbacks inline no HTML.
+document.getElementById('eSearch').addEventListener('input',renderEstoque);
+document.getElementById('eCat').addEventListener('change',renderEstoque);
+document.getElementById('eStatus').addEventListener('change',renderEstoque);
+document.getElementById('hSearch').addEventListener('input',renderHist);
+document.getElementById('hTipo').addEventListener('change',renderHist);
 
 function renderEstoque(){
   const items=window.items;
