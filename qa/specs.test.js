@@ -1,13 +1,14 @@
 import { scenario, assert, By } from './support.js';
-async function login(p){
- await p.open();await p.fill('#loginEmail','qa@example.test');await p.fill('#loginPassword','SenhaQA123!');
+import { Key } from 'selenium-webdriver';
+async function login(p,path='/'){
+ await p.open(path);await p.fill('#loginEmail','qa@example.test');await p.fill('#loginPassword','SenhaQA123!');
  await p.click('#btnLogin');await p.waitText('#sideUserName','qa@example.test');
  await p.waitText('#kpiGrid','Total de itens');
 }
 async function nav(p,page){await p.click('.nav-item[onclick="nav(\''+page+'\',this)"]');}
-async function movement(p,quantity,type='entrada'){
+async function movement(p,quantity,type='entrada',product='Produto QA'){
  await p.click('button[onclick="openMov()"]');
- await p.select('#mItem','Produto QA');await p.fill('#mQtd',quantity);await p.fill('#mMotivo','Movimento QA');
+ await p.select('#mItem',product);await p.fill('#mQtd',quantity);await p.fill('#mMotivo','Movimento QA');
  if(type==='saida')await p.click('#btnSaida');
  await p.click('button[onclick="confirmarMov()"]');
 }
@@ -62,6 +63,71 @@ scenario('busca de estoque filtra itens',async p=>{
  assert.match(table,/Zerado QA/);assert.doesNotMatch(table,/Produto QA/);
 });
 
+async function rows(p,table){
+ const elements=await p.driver.findElements(By.css(table+' tbody tr'));
+ return Promise.all(elements.map(e=>e.getText()));
+}
+async function productNames(p,table,column=1){
+ const elements=await p.driver.findElements(By.css(`${table} tbody tr td:nth-child(${column})`));
+ return Promise.all(elements.map(e=>e.getText()));
+}
+async function filterState(p){
+ return p.driver.executeScript('return {saved:window.__qaData(),items:window.items,hist:window.hist,writes:window.__qaWrites.length}');
+}
+async function clearSearch(p,selector){
+ // WebDriver.clear() pode não disparar input; apagar por teclas percorre o fluxo do usuário.
+ const field=await p.element(selector);
+ await field.sendKeys(Key.HOME,Key.chord(Key.SHIFT,Key.END),Key.BACK_SPACE);
+ assert.equal(await field.getAttribute('value'),'');
+}
+scenario('filtros de estoque combinam busca categoria e status sem gravar',async p=>{
+ await login(p);await nav(p,'estoque');
+ const before=await filterState(p);
+ const all=['Produto QA','Critico QA','Zerado QA'];
+ await p.select('#eCat','Papelaria');
+ assert.deepEqual(await productNames(p,'#estoqueTable'),all.slice(0,2));
+ await p.select('#eStatus','repor');
+ assert.deepEqual(await productNames(p,'#estoqueTable'),['Critico QA']);
+ await p.fill('#eSearch','PRODUTO');
+ assert.deepEqual(await rows(p,'#estoqueTable'),[]);
+ await p.waitText('#estoqueTable','Nenhum produto encontrado.');
+ await p.select('#eStatus','ok');
+ assert.deepEqual(await productNames(p,'#estoqueTable'),['Produto QA']);
+ await clearSearch(p,'#eSearch');
+ await p.select('#eCat','Producao');
+ assert.deepEqual(await rows(p,'#estoqueTable'),[]);
+ await p.select('#eStatus','zerado');
+ assert.deepEqual(await productNames(p,'#estoqueTable'),['Zerado QA']);
+ await p.select('#eCat','');await p.select('#eStatus','');
+ assert.deepEqual(await productNames(p,'#estoqueTable'),all);
+ assert.deepEqual(await filterState(p),before,'filtros não alteram saldos, histórico ou persistência');
+});
+
+scenario('historico combina busca e tipo e restaura movimentacoes sem gravar',async p=>{
+ await login(p);
+ await movement(p,5);await committed(p,1);
+ await movement(p,3,'saida');await committed(p,2);
+ await movement(p,2,'entrada','Zerado QA');await committed(p,3);
+ await nav(p,'movimentacoes');
+ const before=await filterState(p);
+ const all=await rows(p,'#histTable');
+ assert.equal(all.length,3);
+ await p.select('#hTipo','saida');
+ assert.deepEqual(await productNames(p,'#histTable',2),['Produto QA']);
+ assert.match((await rows(p,'#histTable'))[0],/Saida\s+-3/);
+ await p.fill('#hSearch','ZERADO');
+ assert.deepEqual(await rows(p,'#histTable'),[]);
+ await p.waitText('#histTable','Nenhuma movimentacao encontrada.');
+ await p.select('#hTipo','entrada');
+ assert.deepEqual(await productNames(p,'#histTable',2),['Zerado QA']);
+ assert.match((await rows(p,'#histTable'))[0],/Entrada\s+\+2/);
+ await clearSearch(p,'#hSearch');
+ assert.deepEqual(await productNames(p,'#histTable',2),['Zerado QA','Produto QA']);
+ await p.select('#hTipo','');
+ assert.deepEqual(await rows(p,'#histTable'),all);
+ assert.deepEqual(await filterState(p),before,'consultar histórico não altera dados ou gravações');
+});
+
 async function committed(p,count){
  await p.driver.wait(()=>p.driver.executeScript(
   'return window.__qaWrites.length===arguments[0]&&document.getElementById("modalOverlay").style.display==="none"',count),
@@ -108,4 +174,48 @@ scenario('movimentacoes fracionarias conservam saldo e ordem do historico',async
   ['entrada','Produto QA',0.1,'Movimento QA']
  ]);
  await kpis(p,['3','1','1','1']);
+});
+
+async function period(p,start,end){
+ // Valores ISO do controle nativo, sem depender do formato regional do Chrome.
+ await p.driver.executeScript(`for(const [id,value] of Object.entries(arguments[0])){
+  const field=document.getElementById(id);field.value=value;
+  field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));
+ }`,{hInicio:start,hFim:end});
+}
+async function historyDates(p){
+ const cells=await p.driver.findElements(By.css('#histTable tbody tr td:first-child'));
+ return Promise.all(cells.map(e=>e.getText()));
+}
+scenario('periodo do historico inclui bordas e permite limites independentes',async p=>{
+ await login(p,'/?qaHistory=dates');await nav(p,'movimentacoes');
+ const before=await filterState(p),all=await rows(p,'#histTable');assert.equal(all.length,6);
+ await period(p,'2026-01-01','2026-01-31');
+ assert.deepEqual(await historyDates(p),['31/01/2026','15/01/2026','01/01/2026']);
+ await period(p,'2026-01-15','2026-01-15');assert.deepEqual(await historyDates(p),['15/01/2026']);
+ await period(p,'2026-01-31','');assert.deepEqual(await historyDates(p),['01/02/2026','31/01/2026']);
+ await period(p,'','2026-01-01');assert.deepEqual(await historyDates(p),['01/01/2026','31/12/2025']);
+ await period(p,'','');assert.deepEqual(await rows(p,'#histTable'),all);
+ assert.deepEqual(await filterState(p),before,'consultar datas não grava nem descarta o histórico legado');
+});
+scenario('periodo combina nome e tipo sem alterar saldos ou historico',async p=>{
+ await login(p,'/?qaHistory=dates');await nav(p,'movimentacoes');const before=await filterState(p);
+ await period(p,'2026-01-01','2026-01-31');await p.fill('#hSearch','PRODUTO');
+ assert.deepEqual(await historyDates(p),['31/01/2026','15/01/2026']);
+ await p.select('#hTipo','saida');assert.deepEqual(await historyDates(p),['15/01/2026']);
+ await period(p,'2026-02-01','2026-02-01');
+ assert.deepEqual(await historyDates(p),[]);await p.waitText('#histTable','Nenhuma movimentacao encontrada.');
+ await p.fill('#hSearch','Zerado');assert.deepEqual(await historyDates(p),['01/02/2026']);
+ await clearSearch(p,'#hSearch');await p.select('#hTipo','');await period(p,'','');
+ assert.equal((await rows(p,'#histTable')).length,6);assert.deepEqual(await filterState(p),before);
+});
+scenario('periodo invertido informa erro e recupera a consulta apos corrigir',async p=>{
+ await login(p,'/?qaHistory=dates');await nav(p,'movimentacoes');const before=await filterState(p);
+ await period(p,'2026-02-01','2026-01-01');
+ await p.waitText('#histTable [role="alert"]','A data inicial deve ser anterior ou igual a data final.');
+ assert.deepEqual(await historyDates(p),[]);
+ await period(p,'2026-02-01','2026-02-01');assert.deepEqual(await historyDates(p),['01/02/2026']);
+ await period(p,'2030-01-01','2030-12-31');await p.waitText('#histTable','Nenhuma movimentacao encontrada.');
+ await period(p,'','');assert.equal((await rows(p,'#histTable')).length,6);
+ assert.deepEqual(await filterState(p),before,'corrigir período não modifica dados ou gravações');
 });

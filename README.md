@@ -8,7 +8,7 @@ Sistema web de almoxarifado para uma indústria controlar materiais de escritór
 
 - **Dashboard** com totais, itens críticos, últimas movimentações e gráfico de itens por categoria (Chart.js).
 - **Produtos** com busca e filtros por categoria e por situação: **OK**, **Repor** (abaixo do mínimo) e **Zerado**.
-- **Movimentações** de entrada e saída com motivo e histórico completo.
+- **Movimentações** de entrada e saída com motivo e histórico filtrável por produto, tipo e período (datas inicial/final inclusivas).
 - **Reposição:** lista automática dos itens abaixo do estoque mínimo, com quantidade sugerida (dobro do mínimo).
 - **Pedido de compra** pronto para imprimir ou enviar por e-mail (EmailJS).
 - **Resumo semanal** do almoxarifado enviado por e-mail.
