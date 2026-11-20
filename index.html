@@ -323,6 +323,8 @@ tr:hover td{background:#FAFBFE}
               <option value="entrada">Entradas</option>
               <option value="saida">Saidas</option>
             </select>
+            <label>De <input type="date" id="hInicio" aria-label="Data inicial do historico"></label>
+            <label>Ate <input type="date" id="hFim" aria-label="Data final do historico"></label>
           </div>
         </div>
         <div id="histTable"></div>
@@ -754,6 +756,10 @@ document.getElementById('eCat').addEventListener('change',renderEstoque);
 document.getElementById('eStatus').addEventListener('change',renderEstoque);
 document.getElementById('hSearch').addEventListener('input',renderHist);
 document.getElementById('hTipo').addEventListener('change',renderHist);
+for(const id of ['hInicio','hFim']){
+  document.getElementById(id).addEventListener('input',renderHist);
+  document.getElementById(id).addEventListener('change',renderHist);
+}
 
 function renderEstoque(){
   const items=window.items;
@@ -783,13 +789,31 @@ function renderEstoque(){
     </tbody></table>`;
 }
 
+function dataHistISO(value){
+  const parts=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value||'');
+  if(!parts)return '';
+  const iso=`${parts[3]}-${parts[2]}-${parts[1]}`;
+  const date=new Date(iso+'T00:00:00Z');
+  return Number.isFinite(date.getTime())&&date.toISOString().slice(0,10)===iso?iso:'';
+}
+
 function renderHist(){
   const hist=window.hist;
   const search=(document.getElementById('hSearch')?.value||'').toLowerCase();
   const selTipo=document.getElementById('hTipo')?.value||'';
+  const inicio=document.getElementById('hInicio').value;
+  const fim=document.getElementById('hFim').value;
+  if(inicio&&fim&&inicio>fim){
+    document.getElementById('histTable').innerHTML='<div class="empty-state" role="alert">A data inicial deve ser anterior ou igual a data final.</div>';
+    return;
+  }
   const filtered=hist.filter(h=>{
     if(selTipo&&h.tipo!==selTipo)return false;
     if(search&&!h.nome.toLowerCase().includes(search))return false;
+    if(inicio||fim){
+      const date=dataHistISO(h.data);
+      if(!date||(inicio&&date<inicio)||(fim&&date>fim))return false;
+    }
     return true;
   });
   document.getElementById('histTable').innerHTML=filtered.length===0

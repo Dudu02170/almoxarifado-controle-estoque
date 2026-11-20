@@ -1,7 +1,7 @@
 import { scenario, assert, By } from './support.js';
 import { Key } from 'selenium-webdriver';
-async function login(p){
- await p.open();await p.fill('#loginEmail','qa@example.test');await p.fill('#loginPassword','SenhaQA123!');
+async function login(p,path='/'){
+ await p.open(path);await p.fill('#loginEmail','qa@example.test');await p.fill('#loginPassword','SenhaQA123!');
  await p.click('#btnLogin');await p.waitText('#sideUserName','qa@example.test');
  await p.waitText('#kpiGrid','Total de itens');
 }
@@ -174,4 +174,48 @@ scenario('movimentacoes fracionarias conservam saldo e ordem do historico',async
   ['entrada','Produto QA',0.1,'Movimento QA']
  ]);
  await kpis(p,['3','1','1','1']);
+});
+
+async function period(p,start,end){
+ // Valores ISO do controle nativo, sem depender do formato regional do Chrome.
+ await p.driver.executeScript(`for(const [id,value] of Object.entries(arguments[0])){
+  const field=document.getElementById(id);field.value=value;
+  field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));
+ }`,{hInicio:start,hFim:end});
+}
+async function historyDates(p){
+ const cells=await p.driver.findElements(By.css('#histTable tbody tr td:first-child'));
+ return Promise.all(cells.map(e=>e.getText()));
+}
+scenario('periodo do historico inclui bordas e permite limites independentes',async p=>{
+ await login(p,'/?qaHistory=dates');await nav(p,'movimentacoes');
+ const before=await filterState(p),all=await rows(p,'#histTable');assert.equal(all.length,6);
+ await period(p,'2026-01-01','2026-01-31');
+ assert.deepEqual(await historyDates(p),['31/01/2026','15/01/2026','01/01/2026']);
+ await period(p,'2026-01-15','2026-01-15');assert.deepEqual(await historyDates(p),['15/01/2026']);
+ await period(p,'2026-01-31','');assert.deepEqual(await historyDates(p),['01/02/2026','31/01/2026']);
+ await period(p,'','2026-01-01');assert.deepEqual(await historyDates(p),['01/01/2026','31/12/2025']);
+ await period(p,'','');assert.deepEqual(await rows(p,'#histTable'),all);
+ assert.deepEqual(await filterState(p),before,'consultar datas não grava nem descarta o histórico legado');
+});
+scenario('periodo combina nome e tipo sem alterar saldos ou historico',async p=>{
+ await login(p,'/?qaHistory=dates');await nav(p,'movimentacoes');const before=await filterState(p);
+ await period(p,'2026-01-01','2026-01-31');await p.fill('#hSearch','PRODUTO');
+ assert.deepEqual(await historyDates(p),['31/01/2026','15/01/2026']);
+ await p.select('#hTipo','saida');assert.deepEqual(await historyDates(p),['15/01/2026']);
+ await period(p,'2026-02-01','2026-02-01');
+ assert.deepEqual(await historyDates(p),[]);await p.waitText('#histTable','Nenhuma movimentacao encontrada.');
+ await p.fill('#hSearch','Zerado');assert.deepEqual(await historyDates(p),['01/02/2026']);
+ await clearSearch(p,'#hSearch');await p.select('#hTipo','');await period(p,'','');
+ assert.equal((await rows(p,'#histTable')).length,6);assert.deepEqual(await filterState(p),before);
+});
+scenario('periodo invertido informa erro e recupera a consulta apos corrigir',async p=>{
+ await login(p,'/?qaHistory=dates');await nav(p,'movimentacoes');const before=await filterState(p);
+ await period(p,'2026-02-01','2026-01-01');
+ await p.waitText('#histTable [role="alert"]','A data inicial deve ser anterior ou igual a data final.');
+ assert.deepEqual(await historyDates(p),[]);
+ await period(p,'2026-02-01','2026-02-01');assert.deepEqual(await historyDates(p),['01/02/2026']);
+ await period(p,'2030-01-01','2030-12-31');await p.waitText('#histTable','Nenhuma movimentacao encontrada.');
+ await period(p,'','');assert.equal((await rows(p,'#histTable')).length,6);
+ assert.deepEqual(await filterState(p),before,'corrigir período não modifica dados ou gravações');
 });
